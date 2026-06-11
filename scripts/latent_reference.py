@@ -3,10 +3,10 @@ import torch
 import torchvision.transforms.functional as tvf
 import numpy as np
 import math
+import cv2
 
 from modules import scripts, shared, devices
 from modules.ui_components import InputAccordion
-
 
 class LatentReferenceScript(scripts.Script):
     def __init__(self):
@@ -41,10 +41,15 @@ class LatentReferenceScript(scripts.Script):
                 label="Size multiple (alignment)",
                 info="After resizing, width and height are rounded down to the nearest multiple of this value",
             )
+            interpolation = gr.Radio(
+                choices=["bilinear", "bicubic", "nearest", "area", "lanczos"],
+                value="bilinear",
+                label="Resize interpolation method",
+            )
 
-        return enable, ref_images, resize_scale, size_multiple
+        return enable, ref_images, resize_scale, size_multiple, interpolation
 
-    def process(self, p, enable, ref_images, resize_scale, size_multiple, *args, **kwargs):
+    def process(self, p, enable, ref_images, resize_scale, size_multiple, interpolation, *args, **kwargs):
         if not enable:
             return
 
@@ -62,7 +67,7 @@ class LatentReferenceScript(scripts.Script):
 
         self.ref_latents = []
         for img in ref_imgs:
-            resized_img, out_h, out_w = self._resize_image(img, resize_scale, size_multiple)
+            resized_img, out_h, out_w = self._resize_image(img, resize_scale, size_multiple, interpolation)
             img_tensor = torch.from_numpy(resized_img).float() / 255.0
 
             if img_tensor.ndim == 3:
@@ -83,36 +88,37 @@ class LatentReferenceScript(scripts.Script):
         unet = p.sd_model.forge_objects.unet
         unet.model_options["latent_ref_images"] = self.ref_latents[:]
 
-    def _resize_image(self, img: np.ndarray, resize_scale: float, size_multiple: int):
+    def _resize_image(self, img: np.ndarray, resize_scale: float, size_multiple: int, interpolation: str = "bilinear"):
         h, w = img.shape[0], img.shape[1]
 
-        # 1. Target area is resize_scale squared
         target_area = resize_scale ** 2
         orig_area = h * w
 
-        # Only resize if the current image area is larger than the target area
-        if orig_area <= target_area:
-            new_h, new_w = h, w
-        else:
-            # 2. Calculate aspect-ratio preserving scale factor based on area
-            factor = math.sqrt(target_area / orig_area)
-            new_h = h * factor
-            new_w = w * factor
+        factor = math.sqrt(target_area / orig_area)
+        new_h = h * factor
+        new_w = w * factor
 
-        # 3. Round to the NEAREST size_multiple instead of always rounding down
         new_h = int(round(new_h / size_multiple) * size_multiple)
         new_w = int(round(new_w / size_multiple) * size_multiple)
 
-        # 4. Prevent dimensions from dropping below the size_multiple floor
         if new_h < size_multiple:
             new_h = size_multiple
         if new_w < size_multiple:
             new_w = size_multiple
 
-        # Convert and resize using torchvision
-        img_pil = tvf.to_pil_image(torch.from_numpy(img).permute(2, 0, 1))
-        img_pil = tvf.resize(img_pil, (new_h, new_w))
-        return np.array(img_pil), new_h, new_w
+        str_to_cv = {
+            "bilinear": cv2.INTER_LINEAR,
+            "bicubic": cv2.INTER_CUBIC,
+            "nearest": cv2.INTER_NEAREST,
+            "area": cv2.INTER_AREA,
+            "lanczos": cv2.INTER_LANCZOS4
+        }
+        
+        cv_interp = str_to_cv.get(interpolation.lower(), cv2.INTER_LINEAR)
+
+        resized_img = cv2.resize(img, (new_w, new_h), interpolation=cv_interp)
+        
+        return resized_img, new_h, new_w
 
     def process_before_every_sampling(self, p, *args, **kwargs):
         if not getattr(self, "ref_latents", None):
