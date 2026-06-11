@@ -34,7 +34,7 @@ class LatentReferenceScript(scripts.Script):
                 value=1024,
                 step=1,
                 label="Resize to ~N px (width and height)",
-                info="Reference image will be resized so their largest dimension is close to this value. Generation resolution will be overridden to match.",
+                info="Reference image will be resized close to this value. Generation resolution will be overridden to match.",
             )
 
             size_multiple = gr.Slider(
