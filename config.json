@@ -1,0 +1,5 @@
+{
+    "name": "sd_forge_latent_reference",
+    "version": "1.0.0",
+    "description": "Add latent reference input for Anima DiT and other video models, allowing reference latents to be concatenated along the time dimension during forward pass."
+}
