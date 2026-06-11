@@ -20,6 +20,7 @@ A forge-neo extension that adds latent reference input for the Anima DiT model. 
   - `nearest`: No smoothing — preserves pixel art / hard edges
   - `area`: Best for downscaling, avoids moiré artifacts
   - `lanczos`: Highest quality resizing, computationally expensive
+- **Background color**: For transparent PNGs, this color fills the background behind the foreground image (default `#000000`)
 
 ## Credits
 
