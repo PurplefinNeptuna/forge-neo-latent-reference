@@ -22,7 +22,7 @@ class LatentReferenceScript(scripts.Script):
     def ui(self, is_img2img):
         with InputAccordion(False, label=self.title()) as enable:
             ref_images = gr.Image(
-                label="Reference Images",
+                label="Reference Image",
                 type="pil",
                 image_mode='RGBA', 
                 sources=["upload"],
@@ -34,7 +34,7 @@ class LatentReferenceScript(scripts.Script):
                 value=1024,
                 step=1,
                 label="Resize to ~N px (width and height)",
-                info="Reference images will be resized so their largest dimension is close to this value. Generation resolution will be overridden to match.",
+                info="Reference image will be resized so their largest dimension is close to this value. Generation resolution will be overridden to match.",
             )
 
             size_multiple = gr.Slider(
@@ -55,7 +55,7 @@ class LatentReferenceScript(scripts.Script):
             bg_color = gr.ColorPicker(
                 value="#000000",
                 label="Background color",
-                info="For transparent imagess: this color fills the background behind the foreground image",
+                info="For transparent image: this color fills the background behind the foreground image",
             )
 
         return (
