@@ -2,6 +2,7 @@ import gradio as gr
 import torch
 import torchvision.transforms.functional as tvf
 import numpy as np
+import math
 
 from modules import scripts, shared, devices
 from modules.ui_components import InputAccordion
@@ -33,8 +34,8 @@ class LatentReferenceScript(scripts.Script):
                 info="Reference images will be resized so their largest dimension is close to this value. Generation resolution will be overridden to match.",
             )
             size_multiple = gr.Slider(
-                minimum=1,
-                maximum=32,
+                minimum=8,
+                maximum=128,
                 value=8,
                 step=1,
                 label="Size multiple (alignment)",
@@ -84,21 +85,31 @@ class LatentReferenceScript(scripts.Script):
 
     def _resize_image(self, img: np.ndarray, resize_scale: float, size_multiple: int):
         h, w = img.shape[0], img.shape[1]
-        max_dim = max(h, w)
-        if max_dim <= resize_scale:
+
+        # 1. Target area is resize_scale squared
+        target_area = resize_scale ** 2
+        orig_area = h * w
+
+        # Only resize if the current image area is larger than the target area
+        if orig_area <= target_area:
             new_h, new_w = h, w
         else:
-            factor = resize_scale / max_dim
-            new_h = int(h * factor)
-            new_w = int(w * factor)
+            # 2. Calculate aspect-ratio preserving scale factor based on area
+            factor = math.sqrt(target_area / orig_area)
+            new_h = h * factor
+            new_w = w * factor
 
-        new_h = (new_h // size_multiple) * size_multiple
-        new_w = (new_w // size_multiple) * size_multiple
-        if new_h < 1:
+        # 3. Round to the NEAREST size_multiple instead of always rounding down
+        new_h = int(round(new_h / size_multiple) * size_multiple)
+        new_w = int(round(new_w / size_multiple) * size_multiple)
+
+        # 4. Prevent dimensions from dropping below the size_multiple floor
+        if new_h < size_multiple:
             new_h = size_multiple
-        if new_w < 1:
+        if new_w < size_multiple:
             new_w = size_multiple
 
+        # Convert and resize using torchvision
         img_pil = tvf.to_pil_image(torch.from_numpy(img).permute(2, 0, 1))
         img_pil = tvf.resize(img_pil, (new_h, new_w))
         return np.array(img_pil), new_h, new_w
