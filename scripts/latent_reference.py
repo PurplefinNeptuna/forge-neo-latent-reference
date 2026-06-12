@@ -79,6 +79,8 @@ class LatentReferenceScript(scripts.Script):
         *args,
         **kwargs,
     ):
+        self.ref_latents = []
+
         if not enable:
             return
 
@@ -95,7 +97,6 @@ class LatentReferenceScript(scripts.Script):
         else:
             ref_imgs = [ref_images]
 
-        self.ref_latents = []
 
         for img in ref_imgs:
             resized_img, out_h, out_w = self._resize_image(
@@ -125,7 +126,18 @@ class LatentReferenceScript(scripts.Script):
 
             img_tensor = img_tensor * 2.0 - 1.0
 
-            latent = sd_model.encode_first_stage(img_tensor)
+            latent = sd_model.encode_first_stage(img_tensor).detach()
+
+            if self.ref_latents:
+                expected_hw = self.ref_latents[0].shape[-2:]
+
+                if latent.shape[-2:] != expected_hw:
+                    raise RuntimeError(
+                        f"Reference latent size {latent.shape[-2:]} "
+                        f"does not match first reference size "
+                        f"{expected_hw}"
+                    )
+
             self.ref_latents.append(latent)
 
         p.width = out_w
@@ -213,7 +225,7 @@ class LatentReferenceScript(scripts.Script):
             return
 
         unet = p.sd_model.forge_objects.unet.clone()
-        refs = self.ref_latents[:]
+        refs = tuple(self.ref_latents)
 
         prev_wrapper = unet.model_options.get("model_function_wrapper", None)
 
@@ -245,19 +257,34 @@ class LatentReferenceScript(scripts.Script):
                 bs_x = new_x.shape[0]
                 bs_ref = ref.shape[0]
                 if bs_ref != bs_x:
-                    if bs_x % bs_ref == 0:
-                        ref = ref.repeat(bs_x // bs_ref, 1, 1, 1, 1)
-                    else:
+                    if bs_ref == 1:
                         ref = ref.expand(bs_x, -1, -1, -1, -1)
+
+                    elif bs_x % bs_ref == 0:
+                        ref = ref.repeat(bs_x // bs_ref, 1, 1, 1, 1)
+
+                    else:
+                        raise RuntimeError(
+                            f"Cannot match reference batch size "
+                            f"{bs_ref} to generation batch size "
+                            f"{bs_x}"
+                        )
+
+                if ref.shape[-2:] != new_x.shape[-2:]:
+                    raise RuntimeError(
+                        f"Reference latent size {ref.shape[-2:]} "
+                        f"does not match generation latent size "
+                        f"{new_x.shape[-2:]}"
+                    )
 
                 new_x = torch.cat([new_x, ref], dim=2)
 
-            model_kwargs['input'] = new_x
+            mk = model_kwargs.copy()
+            mk["input"] = new_x
 
             if prev_wrapper is not None:
-                out = prev_wrapper(model_apply, model_kwargs)
+                out = prev_wrapper(model_apply, mk)
             else:
-                mk = model_kwargs.copy()
                 x_val = mk.pop("input")
                 t_val = mk.pop("timestep")
                 cond_dict = mk.pop("c", {})
@@ -272,3 +299,9 @@ class LatentReferenceScript(scripts.Script):
 
     def postprocess(self, p, processed, *args, **kwargs):
         self.ref_latents = []
+
+        try:
+            unet = p.sd_model.forge_objects.unet
+            unet.model_options.pop("latent_ref_images", None)
+        except Exception:
+            pass
